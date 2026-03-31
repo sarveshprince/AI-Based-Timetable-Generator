@@ -22,6 +22,6 @@ if not check_deps():
 from app import app, init_db
 
 init_db()
-print("\nLogin: admin / admin123")
+print("\nLogin: sarvesh.jr10@gmail.com / Sarvesh10")
 print("URL: http://localhost:5000\n")
 app.run(debug=True, host="0.0.0.0", port=5000)
