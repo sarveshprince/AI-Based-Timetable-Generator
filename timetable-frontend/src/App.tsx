@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import AppLayout from './components/AppLayout'
+import AppLayout from './components/layout/AppLayout'
 import ProtectedRoute from './components/ProtectedRoute'
 import AllocationsPage from './pages/AllocationsPage'
 import DashboardPage from './pages/DashboardPage'

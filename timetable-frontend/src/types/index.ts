@@ -114,3 +114,13 @@ export type TimetableGenerationPayload = {
   semester: number
   academic_year: string
 }
+
+export type TimetableSlot = {
+  day: string
+  time: string
+  subject?: string
+  faculty?: string
+  subjectCode?: string
+  roomNumber?: string
+  building?: string
+}

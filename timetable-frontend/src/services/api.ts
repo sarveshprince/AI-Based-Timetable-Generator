@@ -183,3 +183,9 @@ export const downloadReport = async (id: number) => {
   link.remove()
   window.URL.revokeObjectURL(url)
 }
+
+export const updateTimetable = async (payload: Record<string, unknown>) =>
+  request<{ message: string; success?: boolean }>('/timetable/update', {
+    method: 'POST',
+    body: payload,
+  })

@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+
 import { getStoredUser } from '../services/api'
 import type { User } from '../types'
 
