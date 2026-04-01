@@ -228,41 +228,35 @@ def delete_department(department_id):
 
 
 @department_bp.route("/api/sections", methods=["GET"])
-@auth_required
+# @auth_required
 def get_sections():
     department_id = request.args.get("department_id", "").strip()
     semester = request.args.get("semester", "").strip()
-    year = request.args.get("year", "").strip()
-    if not year and semester:
-        try:
-            year = str((int(semester) + 1) // 2)
-        except ValueError:
-            return json_error("semester must be an integer.")
+    print(f"Sections API: {department_id} {semester}")
     db = get_db()
     query = """
         SELECT s.id,
-               s.year_id,
                s.name,
                s.strength,
                s.semester,
-               y.department_id,
-               y.year_number AS year,
-               d.name AS department_name,
-               d.code AS department_code
+               y.year_number,
+               y.department_id
         FROM sections s
         JOIN years y ON s.year_id = y.id
-        JOIN departments d ON y.department_id = d.id
         WHERE 1 = 1
     """
     params = []
     if department_id:
         query += " AND y.department_id = ?"
-        params.append(department_id)
-    if year:
-        query += " AND y.year_number = ?"
-        params.append(year)
-    query += " ORDER BY d.name, y.year_number, s.name"
-    sections = rows_to_list(db.execute(query, params).fetchall())
+        params.append(int(department_id))
+    if semester:
+        sem = int(semester)
+        base_sem = sem if sem % 2 == 1 else sem - 1   # 🔥 FIX
+        query += " AND s.semester = ?"
+        params.append(base_sem)
+    query += " ORDER BY s.name"
+    rows = db.execute(query, params).fetchall()
+    sections = [{"id": row["id"], "name": row["name"]} for row in rows]
     db.close()
     return jsonify({"sections": sections})
 

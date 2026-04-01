@@ -151,7 +151,7 @@ export const deleteSubject = async (id: number) =>
 export const getAllocations = async () =>
   request<{ allocations: Allocation[]; departments: Department[] }>('/subject-allocations')
 
-export const createAllocation = async (payload: { subject_id: number; faculty_id: number }) =>
+export const createAllocation = async (payload: { subject_id: number; faculty_id: number; section_id: number }) =>
   request<{ allocation: Allocation }>('/subject-allocations', { method: 'POST', body: payload })
 
 export const deleteAllocation = async (id: number) =>

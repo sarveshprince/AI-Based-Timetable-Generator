@@ -9,6 +9,22 @@ from utils.helpers import json_error, row_to_dict, rows_to_list
 subject_bp = Blueprint("subject", __name__)
 
 
+def _get_id(payload, key):
+    val = payload.get(key)
+    if isinstance(val, dict):
+        nested_id = val.get("id")
+        if isinstance(nested_id, int):
+            return nested_id
+        if isinstance(nested_id, str) and nested_id.isdigit():
+            return int(nested_id)
+        return None
+    if isinstance(val, str) and val.isdigit():
+        return int(val)
+    if isinstance(val, int):
+        return val
+    return None
+
+
 @subject_bp.route("/api/subjects", methods=["GET"])
 @auth_required
 def get_subjects():
@@ -187,47 +203,114 @@ def get_allocations():
 @admin_required
 def create_allocation():
     payload = request.get_json(silent=True) or {}
-    subject_id = payload.get("subject_id")
-    faculty_id = payload.get("faculty_id")
-    section_id = payload.get("section_id")
-    if not subject_id or not faculty_id or not section_id:
-        return json_error("subject_id, faculty_id and section_id are required.")
+    print(f"ALLOC payload: {payload}")
+
+    subject_id = _get_id(payload, "subject_id") or _get_id(payload, "subject")
+    faculty_id = _get_id(payload, "faculty_id") or _get_id(payload, "faculty")
+    section_id = _get_id(payload, "section_id") or _get_id(payload, "section")
+
+    if not section_id:
+        department_id = _get_id(payload, "department_id")
+        year_raw = payload.get("year")
+        section_name = (payload.get("section_name") or payload.get("section_code") or "").strip().upper()
+        if department_id and year_raw and section_name:
+            try:
+                year_number = int(year_raw)
+            except (TypeError, ValueError):
+                year_number = None
+            if year_number is not None:
+                db = get_db()
+                section_row = db.execute(
+                    """
+                    SELECT s.id
+                    FROM sections s
+                    JOIN years y ON s.year_id = y.id
+                    WHERE y.department_id = ? AND y.year_number = ? AND s.name = ?
+                    LIMIT 1
+                    """,
+                    (department_id, year_number, section_name),
+                ).fetchone()
+                db.close()
+                section_id = section_row["id"] if section_row else None
+
+    print(f"Parsed IDs: {subject_id} {faculty_id} {section_id}")
+
+    missing = []
+    if not subject_id:
+        missing.append("subject_id")
+    if not faculty_id:
+        missing.append("faculty_id")
+    if not section_id:
+        missing.append("section_id")
+    if missing:
+        return jsonify({"error": "Missing required fields", "missing": missing}), 400
 
     db = get_db()
-    subject = db.execute("SELECT department_id, semester, year FROM subjects WHERE id = ?", (subject_id,)).fetchone()
+    subject = db.execute("SELECT id, department_id, semester, year FROM subjects WHERE id = ?", (subject_id,)).fetchone()
+    if not subject:
+        db.close()
+        return jsonify({"error": f"Subject not found: {subject_id}"}), 404
+
+    faculty = db.execute("SELECT id, department_id FROM faculty WHERE id = ?", (faculty_id,)).fetchone()
+    if not faculty:
+        db.close()
+        return jsonify({"error": f"Faculty not found: {faculty_id}"}), 404
+
     section = db.execute(
         """
-        SELECT y.department_id, y.year_number AS year
+        SELECT s.id,
+               y.department_id,
+               y.year_number AS year,
+               s.semester
         FROM sections s
         JOIN years y ON s.year_id = y.id
         WHERE s.id = ?
         """,
         (section_id,),
     ).fetchone()
-    faculty = db.execute("SELECT department_id FROM faculty WHERE id = ?", (faculty_id,)).fetchone()
-    if not subject or not section or not faculty:
+    if not section:
         db.close()
-        return json_error("Invalid subject/faculty/section.", 404)
+        return jsonify({"error": f"Section not found: {section_id}"}), 404
+
     if subject["department_id"] != section["department_id"] or subject["department_id"] != faculty["department_id"]:
         db.close()
         return json_error("subject/faculty/section must belong to same department.", 400)
-    if subject["year"] != section["year"]:
-        db.close()
-        return json_error("Subject year must match section year.", 400)
 
+    # 🔥 extract values first
+    subject_semester = subject["semester"]
+    section_semester = section["semester"]
+    subject_base = subject_semester if subject_semester % 2 == 1 else subject_semester - 1
+    if subject_base != section_semester:
+        db.close()
+        return json_error("Subject year/semester must match section year/semester")
     try:
-        cursor = db.execute(
+        inserted = db.execute(
             """
             INSERT INTO subject_faculty (subject_id, faculty_id, section_id)
             VALUES (?, ?, ?)
+            ON CONFLICT (subject_id, faculty_id, section_id) DO NOTHING
+            RETURNING id
             """,
             (subject_id, faculty_id, section_id),
-        )
+        ).fetchone()
         db.commit()
     except psycopg2.IntegrityError:
         db.rollback()
         db.close()
         return json_error("This subject-faculty-section allocation already exists.", 409)
+
+    if inserted:
+        allocation_id = inserted["id"]
+    else:
+        existing = db.execute(
+            """
+            SELECT id
+            FROM subject_faculty
+            WHERE subject_id = ? AND faculty_id = ? AND section_id = ?
+            """,
+            (subject_id, faculty_id, section_id),
+        ).fetchone()
+        allocation_id = existing["id"] if existing else None
 
     allocation = db.execute(
         """
@@ -242,7 +325,7 @@ def create_allocation():
         JOIN sections sec ON sf.section_id = sec.id
         WHERE sf.id = ?
         """,
-        (cursor.lastrowid,),
+        (allocation_id,),
     ).fetchone()
     db.close()
     return jsonify({"allocation": row_to_dict(allocation)}), 201
@@ -265,18 +348,48 @@ def subjects_by_department_semester():
     dept_id = request.args.get("dept_id")
     semester = request.args.get("semester")
     year = request.args.get("year")
+
+    print("DEBUG INPUT:", dept_id, semester, year)
+
+    if not dept_id:
+        return jsonify({"subjects": []})
+
     db = get_db()
 
-    query = "SELECT id, name, code FROM subjects WHERE department_id = ?"
-    params = [dept_id]
+    query = """
+        SELECT id, name, code
+        FROM subjects
+        WHERE department_id = ?
+    """
+    params = [int(dept_id)]   # 🔥 FIX: convert to int
+
     if semester:
         query += " AND semester = ?"
-        params.append(semester)
+        params.append(int(semester))   # 🔥 FIX: convert to int
+
+    # 🔥 OPTIONAL: only apply year if explicitly valid
     if year:
         query += " AND year = ?"
-        params.append(year)
+        params.append(int(year))
+
     query += " ORDER BY name"
 
-    subjects = rows_to_list(db.execute(query, params).fetchall())
+    print("DEBUG QUERY:", query)
+    print("DEBUG PARAMS:", params)
+
+    rows = db.execute(query, params).fetchall()
+
+    print("DEBUG RESULT:", rows)
+
+    subjects = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "code": row["code"]
+        }
+        for row in rows
+    ]
+
     db.close()
+
     return jsonify({"subjects": subjects})
