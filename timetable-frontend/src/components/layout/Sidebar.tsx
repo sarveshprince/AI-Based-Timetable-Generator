@@ -45,7 +45,7 @@ const Sidebar = ({ user, open, onClose, onLogout }: SidebarProps) => {
           { to: '/faculty', label: 'Faculty', icon: 'faculty' as const },
           { to: '/subjects', label: 'Subjects', icon: 'subjects' as const },
           { to: '/allocation', label: 'Allocations', icon: 'allocation' as const },
-          { to: '/student', label: 'Students', icon: 'students' as const },
+          // { to: '/student', label: 'Students', icon: 'students' as const },
         ]
       : []),
     { to: '/timetable', label: 'Timetable', icon: 'timetable' },

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import useSocket from '../hooks/useSocket'
 import TimetableGrid from '../components/timetable/TimetableGrid'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -14,6 +15,7 @@ import PageHeader from '../components/ui/PageHeader'
 import Select from '../components/ui/Select'
 import StatCard from '../components/ui/StatCard'
 import {
+  adjustTimetable,
   downloadReport,
   generateTimetable,
   getDepartments,
@@ -22,7 +24,7 @@ import {
   getTimetables,
   updateTimetable,
 } from '../services/api'
-import type { Department, TimetableDetail, TimetableSlot, TimetableSummary } from '../types'
+import type { Department, TimetableAdjustResponse, TimetableDetail, TimetableSlot, TimetableSummary } from '../types'
 
 const formatDateTime = (value: string) => {
   if (!value) {
@@ -41,6 +43,8 @@ const formatDateTime = (value: string) => {
   }).format(date)
 }
 
+const slotKey = (day: string, time: string) => `${day}__${time}`
+
 const toEditorSlots = (detail: TimetableDetail | null): TimetableSlot[] => {
   if (!detail) {
     return []
@@ -51,6 +55,7 @@ const toEditorSlots = (detail: TimetableDetail | null): TimetableSlot[] => {
       const cell = detail.grid[day]?.[time]
       if (cell) {
         next.push({
+          id: cell.id,
           day,
           time,
           subject: cell.subject_name,
@@ -71,10 +76,13 @@ const TimetablePage = () => {
   const [timetables, setTimetables] = useState<TimetableSummary[]>([])
   const [detail, setDetail] = useState<TimetableDetail | null>(null)
   const [editorSlots, setEditorSlots] = useState<TimetableSlot[]>([])
+  const [changedSlots, setChangedSlots] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [optimizing, setOptimizing] = useState(false)
   const [error, setError] = useState('')
+  const [warning, setWarning] = useState('')
   const [message, setMessage] = useState('')
   const [form, setForm] = useState({
     department_id: '',
@@ -83,6 +91,57 @@ const TimetablePage = () => {
   })
   const user = getStoredUser()
   const timetableId = searchParams.get('id')
+  const adjustTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const selectedTimetableId = detail?.timetable?.id
+
+  const applyAdjustResult = useCallback((payload: TimetableAdjustResponse) => {
+    setDetail(payload.updated_timetable)
+    setEditorSlots(toEditorSlots(payload.updated_timetable))
+    setChangedSlots(payload.changed_slots ?? [])
+    if (payload.unresolved_conflicts?.length) {
+      const suggestions = payload.suggested_slots?.map((item) => `${item.day} ${item.time_slot}`).join(', ')
+      setWarning(`Some conflicts need manual review.${suggestions ? ` Suggested: ${suggestions}` : ''}`)
+    } else {
+      setWarning('')
+    }
+  }, [])
+
+  const handleSocketTimetableUpdate = useCallback(
+    (payload: Record<string, unknown>) => {
+      const updated = payload.updated_timetable as TimetableDetail | undefined
+      const source = String(payload.source ?? '')
+      const updatedBy = Number(payload.updated_by ?? 0)
+      if (!updated || !selectedTimetableId) {
+        return
+      }
+      if (updated.timetable?.id !== selectedTimetableId) {
+        return
+      }
+      setDetail(updated)
+      setEditorSlots(toEditorSlots(updated))
+      setChangedSlots((payload.changed_slots as string[]) ?? [])
+      if (updatedBy && user?.id && updatedBy !== user.id) {
+        setMessage(source === 'adjust' ? 'Timetable optimized by collaborator.' : 'Timetable updated by collaborator.')
+      }
+    },
+    [selectedTimetableId, user?.id],
+  )
+
+  const handleSocketDragUpdate = useCallback((payload: Record<string, unknown>) => {
+    const moved = payload.moved_slot as TimetableSlot | undefined
+    if (!moved?.day || !moved.time) {
+      return
+    }
+    setChangedSlots([slotKey(moved.day, moved.time)])
+  }, [])
+
+  const { emitDragUpdate, emitTimetableUpdate } = useSocket({
+    timetableId: selectedTimetableId,
+    userId: user?.id,
+    onTimetableUpdate: handleSocketTimetableUpdate,
+    onDragUpdate: handleSocketDragUpdate,
+  })
 
   const load = async (id?: number) => {
     setLoading(true)
@@ -96,6 +155,7 @@ const TimetablePage = () => {
       setDetail(timetableResponse)
       setEditorSlots(toEditorSlots(timetableResponse))
       setTimetables(listResponse.timetables)
+      setWarning('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load timetable')
     } finally {
@@ -106,6 +166,23 @@ const TimetablePage = () => {
   useEffect(() => {
     load(timetableId ? Number(timetableId) : undefined).catch(() => undefined)
   }, [timetableId])
+
+  useEffect(
+    () => () => {
+      if (adjustTimeoutRef.current) {
+        clearTimeout(adjustTimeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!changedSlots.length) {
+      return
+    }
+    const timeout = setTimeout(() => setChangedSlots([]), 2200)
+    return () => clearTimeout(timeout)
+  }, [changedSlots])
 
   const onGenerate = async (event: FormEvent) => {
     event.preventDefault()
@@ -161,6 +238,56 @@ const TimetablePage = () => {
     }
   }
 
+  const onGridChange = (nextSlots: TimetableSlot[], movedSlot: TimetableSlot) => {
+    const selectedTimetable = detail?.timetable
+    if (!selectedTimetable) {
+      return
+    }
+
+    setEditorSlots(nextSlots)
+    setChangedSlots([slotKey(movedSlot.day, movedSlot.time)])
+    setWarning('')
+
+    emitDragUpdate({
+      timetable_id: selectedTimetable.id,
+      moved_slot: movedSlot,
+      updated_by: user?.id,
+    })
+
+    if (adjustTimeoutRef.current) {
+      clearTimeout(adjustTimeoutRef.current)
+    }
+
+    adjustTimeoutRef.current = setTimeout(async () => {
+      setOptimizing(true)
+      try {
+        const adjusted = await adjustTimetable({
+          timetable: {
+            timetable_id: selectedTimetable.id,
+            days: detail?.days ?? [],
+            time_slots: detail?.time_slots ?? [],
+            slots: nextSlots,
+          },
+          moved_slot: movedSlot,
+        })
+        applyAdjustResult(adjusted)
+        emitTimetableUpdate({
+          timetable_id: selectedTimetable.id,
+          updated_timetable: adjusted.updated_timetable,
+          changed_slots: adjusted.changed_slots,
+          unresolved_conflicts: adjusted.unresolved_conflicts,
+          suggested_slots: adjusted.suggested_slots,
+          source: 'adjust',
+          updated_by: user?.id,
+        })
+      } catch (err) {
+        setWarning(err instanceof Error ? err.message : 'Could not auto-adjust conflicts. Try a nearby slot.')
+      } finally {
+        setOptimizing(false)
+      }
+    }, 350)
+  }
+
   const selectedTimetable = detail?.timetable
 
   const editorSubjects = useMemo(() => {
@@ -189,7 +316,7 @@ const TimetablePage = () => {
       <PageHeader
         eyebrow="Scheduling Workspace"
         title="Timetable"
-        description="Generate, edit, and export timetables in a premium interactive grid."
+        description="Generate, edit, and sync timetables live with AI-assisted optimization after every drop."
         actions={
           selectedTimetable ? (
             <Button variant="secondary" onClick={() => downloadReport(selectedTimetable.id)}>
@@ -203,6 +330,11 @@ const TimetablePage = () => {
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-600 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300">
           {error}
+        </div>
+      ) : null}
+      {warning ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+          {warning}
         </div>
       ) : null}
       {message ? (
@@ -320,6 +452,12 @@ const TimetablePage = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <Badge tone={selectedTimetable.status === 'active' ? 'success' : 'neutral'}>{selectedTimetable.status}</Badge>
+                    {optimizing ? (
+                      <div className="inline-flex items-center gap-2 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                        <Loader size="sm" />
+                        Optimizing...
+                      </div>
+                    ) : null}
                     {user?.role === 'admin' ? (
                       <Button onClick={onSaveTimetable} loading={saving}>
                         <Icon name="status" className="h-4 w-4" />
@@ -334,7 +472,8 @@ const TimetablePage = () => {
                     timeSlots={detail?.time_slots ?? []}
                     subjects={editorSubjects}
                     slots={editorSlots}
-                    onChange={setEditorSlots}
+                    changedSlotKeys={changedSlots}
+                    onChange={onGridChange}
                   />
                 </CardContent>
               </Card>

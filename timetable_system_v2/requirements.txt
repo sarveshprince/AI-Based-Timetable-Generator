@@ -3,3 +3,4 @@ Werkzeug==3.0.1
 numpy==1.24.3
 reportlab==4.0.7
 psycopg2-binary==2.9.9
+flask-socketio==5.3.6

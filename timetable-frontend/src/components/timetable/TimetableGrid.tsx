@@ -10,12 +10,13 @@ type TimetableGridProps = {
   timeSlots: string[]
   subjects: DragSubject[]
   slots: TimetableSlot[]
-  onChange: (nextSlots: TimetableSlot[]) => void
+  changedSlotKeys?: string[]
+  onChange: (nextSlots: TimetableSlot[], movedSlot: TimetableSlot) => void
 }
 
 const keyForSlot = (day: string, time: string) => `${day}__${time}`
 
-const TimetableGrid = ({ days, timeSlots, subjects, slots, onChange }: TimetableGridProps) => {
+const TimetableGrid = ({ days, timeSlots, subjects, slots, changedSlotKeys = [], onChange }: TimetableGridProps) => {
   const [activeSubject, setActiveSubject] = useState<DragSubject | null>(null)
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 4 } }))
   const gridTemplateColumns = `160px repeat(${Math.max(days.length, 1)}, minmax(180px,1fr))`
@@ -63,18 +64,19 @@ const TimetableGrid = ({ days, timeSlots, subjects, slots, onChange }: Timetable
     )
 
     const nextWithoutTarget = cleaned.filter((slot) => !(slot.day === day && slot.time === time))
+    const movedSlot: TimetableSlot = {
+      day,
+      time,
+      subject: dragged.subject,
+      faculty: dragged.faculty,
+      subjectCode: dragged.subjectCode,
+      building: dragged.building,
+      roomNumber: dragged.roomNumber,
+    }
     onChange([
       ...nextWithoutTarget,
-      {
-        day,
-        time,
-        subject: dragged.subject,
-        faculty: dragged.faculty,
-        subjectCode: dragged.subjectCode,
-        building: dragged.building,
-        roomNumber: dragged.roomNumber,
-      },
-    ])
+      movedSlot,
+    ], movedSlot)
   }
 
   return (
@@ -117,8 +119,15 @@ const TimetableGrid = ({ days, timeSlots, subjects, slots, onChange }: Timetable
                   </div>
                   {days.map((day) => {
                     const slotId = `slot:${keyForSlot(day, time)}`
+                    const isChanged = changedSlotKeys.includes(keyForSlot(day, time))
                     return (
-                      <div key={slotId} className="border-r border-gray-200 bg-white p-3 last:border-r-0 dark:border-gray-800 dark:bg-gray-950/80">
+                      <div
+                        key={slotId}
+                        className={[
+                          'border-r border-gray-200 bg-white p-3 last:border-r-0 dark:border-gray-800 dark:bg-gray-950/80',
+                          isChanged ? 'bg-emerald-50/80 dark:bg-emerald-500/10' : '',
+                        ].join(' ')}
+                      >
                         <DropCell id={slotId} value={slotMap[keyForSlot(day, time)]} />
                       </div>
                     )

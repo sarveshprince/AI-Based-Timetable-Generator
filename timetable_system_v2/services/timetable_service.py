@@ -16,7 +16,7 @@ def serialize_timetable_row(row):
 def build_timetable_payload(db, timetable_id):
     timetable = db.execute(
         """
-        SELECT t.*, d.name as department_name, d.code as department_code
+        SELECT t.*, d.name AS department_name, d.code AS department_code
         FROM timetables t
         LEFT JOIN departments d ON t.department_id = d.id
         WHERE t.id = ?
@@ -25,34 +25,53 @@ def build_timetable_payload(db, timetable_id):
     ).fetchone()
     if not timetable:
         return None
+
     schedules = db.execute(
         """
-        SELECT s.*, sub.name as subject_name, sub.code as subject_code,
-               f.name as faculty_name, c.room_number, c.building
+        SELECT s.*,
+               sub.name AS subject_name,
+               sub.code AS subject_code,
+               f.name AS faculty_name,
+               sec.name AS section_name,
+               sec.name AS section_code,
+               y.year_number AS section_year
         FROM schedules s
         LEFT JOIN subjects sub ON s.subject_id = sub.id
         LEFT JOIN faculty f ON s.faculty_id = f.id
-        LEFT JOIN classrooms c ON s.classroom_id = c.id
+        LEFT JOIN sections sec ON s.section_id = sec.id
+        LEFT JOIN years y ON sec.year_id = y.id
         WHERE s.timetable_id = ?
         ORDER BY s.day, s.time_slot
         """,
         (timetable_id,),
     ).fetchall()
+
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     time_slots = ["9:00-10:00", "10:00-11:00", "11:00-12:00", "12:00-1:00", "2:00-3:00", "3:00-4:00", "4:00-5:00"]
     grid = {day: {slot: None for slot in time_slots} for day in days}
-    flat_schedules = []
-    for schedule in schedules:
-        item = dict(schedule)
-        flat_schedules.append(item)
+    section_timetables = {}
+    faculty_timetables = {}
+    flat = []
+
+    for row in schedules:
+        item = dict(row)
+        flat.append(item)
+        section_key = str(item.get("section_id") or "unassigned")
+        faculty_key = str(item.get("faculty_id") or "unassigned")
+        section_timetables.setdefault(section_key, {}).setdefault(item["day"], {})[item["time_slot"]] = item
+        faculty_timetables.setdefault(faculty_key, {}).setdefault(item["day"], {})[item["time_slot"]] = item
+        # Keep backward-compatible single grid (latest overwrite).
         if item["day"] in grid and item["time_slot"] in grid[item["day"]]:
             grid[item["day"]][item["time_slot"]] = item
+
     return {
         "timetable": serialize_timetable_row(timetable),
         "days": days,
         "time_slots": time_slots,
         "grid": grid,
-        "schedules": flat_schedules,
+        "schedules": flat,
+        "section_timetables": section_timetables,
+        "faculty_timetables": faculty_timetables,
     }
 
 
@@ -84,18 +103,4 @@ def relevant_timetable_query(user):
             """,
             (faculty["id"],),
         )
-    db = get_db()
-    student = db.execute("SELECT department_id, semester FROM students WHERE user_id = ?", (user["id"],)).fetchone()
-    db.close()
-    if not student:
-        return None, None
-    return (
-        """
-        SELECT t.id
-        FROM timetables t
-        WHERE t.department_id = ? AND t.semester = ?
-        ORDER BY t.created_at DESC
-        LIMIT 1
-        """,
-        (student["department_id"], student["semester"]),
-    )
+    return None, None

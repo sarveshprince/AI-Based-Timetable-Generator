@@ -19,7 +19,6 @@ const emptyForm = {
   department_id: '',
   employee_id: '',
   phone: '',
-  max_hours: '20',
   username: '',
   password: '',
 }
@@ -54,7 +53,6 @@ const FacultyPage = () => {
       await createFaculty({
         ...form,
         department_id: Number(form.department_id),
-        max_hours: Number(form.max_hours),
       })
       setForm(emptyForm)
       setShowForm(false)
@@ -108,7 +106,6 @@ const FacultyPage = () => {
               </Select>
               <Input label="Employee ID" value={form.employee_id} onChange={(event) => setForm({ ...form, employee_id: event.target.value })} required />
               <Input label="Phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
-              <Input label="Max hours / week" type="number" value={form.max_hours} onChange={(event) => setForm({ ...form, max_hours: event.target.value })} required />
               <Input label="Username" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
               <Input label="Password" type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
               <div className="md:col-span-2 xl:col-span-3 flex flex-wrap gap-3">

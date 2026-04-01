@@ -18,6 +18,23 @@ export type Department = {
   name: string
   code: string
   created_at?: string
+  years?: DepartmentYearInput[]
+}
+
+export type DepartmentSectionInput = {
+  name: string
+  strength: number
+}
+
+export type DepartmentYearInput = {
+  year: number
+  sections: DepartmentSectionInput[]
+}
+
+export type CreateDepartmentPayload = {
+  department_name: string
+  department_code: string
+  years: DepartmentYearInput[]
 }
 
 export type Faculty = {
@@ -123,4 +140,31 @@ export type TimetableSlot = {
   subjectCode?: string
   roomNumber?: string
   building?: string
+  subjectId?: number
+  facultyId?: number
+  classroomId?: number
+  id?: number
+}
+
+export type TimetableAdjustPayload = {
+  timetable: {
+    timetable_id: number
+    days: string[]
+    time_slots: string[]
+    slots: TimetableSlot[]
+  }
+  moved_slot: TimetableSlot
+}
+
+export type TimetableAdjustResponse = {
+  updated_timetable: TimetableDetail
+  changed_slots: string[]
+  unresolved_conflicts: Array<{
+    reason: string
+    slot: Record<string, unknown>
+  }>
+  suggested_slots: Array<{
+    day: string
+    time_slot: string
+  }>
 }

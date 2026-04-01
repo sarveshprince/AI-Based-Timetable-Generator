@@ -1,18 +1,23 @@
 import type {
   Allocation,
+  CreateDepartmentPayload,
   DashboardResponse,
   Department,
+  DepartmentSectionInput,
   Faculty,
   Notification,
   Student,
   Subject,
   TimetableDetail,
+  TimetableAdjustPayload,
+  TimetableAdjustResponse,
   TimetableGenerationPayload,
   TimetableSummary,
   User,
 } from '../types'
 
 const API_BASE = 'http://127.0.0.1:5000/api'
+export const API_ORIGIN = API_BASE.replace('/api', '')
 const TOKEN_KEY = 'token'
 const USER_KEY = 'user'
 
@@ -90,8 +95,17 @@ export const getDashboardData = async () => request<DashboardResponse>('/dashboa
 
 export const getDepartments = async () => request<{ departments: Department[] }>('/departments')
 
-export const createDepartment = async (payload: Pick<Department, 'name' | 'code'>) =>
-  request<{ department: Department }>('/departments', { method: 'POST', body: payload })
+export const createDepartment = async (payload: CreateDepartmentPayload) =>
+  request<{ message: string; department_id: number }>('/departments', { method: 'POST', body: payload })
+
+export const createSection = async (payload: {
+  name: string
+  department_id: number
+  year: number
+  semester: number
+  section: string
+  strength: number
+}) => request<{ section: DepartmentSectionInput & { id: number } }>('/sections', { method: 'POST', body: payload })
 
 export const deleteDepartment = async (id: number) =>
   request<{ success: boolean }>(`/departments/${id}`, { method: 'DELETE' })
@@ -186,6 +200,12 @@ export const downloadReport = async (id: number) => {
 
 export const updateTimetable = async (payload: Record<string, unknown>) =>
   request<{ message: string; success?: boolean }>('/timetable/update', {
+    method: 'POST',
+    body: payload,
+  })
+
+export const adjustTimetable = async (payload: TimetableAdjustPayload) =>
+  request<TimetableAdjustResponse>('/timetable/adjust', {
     method: 'POST',
     body: payload,
   })

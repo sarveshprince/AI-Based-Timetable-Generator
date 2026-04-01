@@ -20,9 +20,6 @@ const HomeRedirect = () => {
   if (user.role === 'faculty') {
     return <Navigate to="/faculty" replace />
   }
-  if (user.role === 'student') {
-    return <Navigate to="/student" replace />
-  }
   return <Navigate to="/dashboard" replace />
 }
 
@@ -79,14 +76,14 @@ function App() {
         />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/timetable" element={<TimetablePage />} />
-        <Route
+        {/* <Route
           path="/student"
           element={
             <ProtectedRoute role={['admin', 'student']}>
               <StudentPage />
             </ProtectedRoute>
           }
-        />
+        /> */}
       </Route>
       <Route path="/" element={<HomeRedirect />} />
       <Route path="*" element={<HomeRedirect />} />

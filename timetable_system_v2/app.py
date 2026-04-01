@@ -9,6 +9,7 @@ from routes.faculty_routes import faculty_bp
 from routes.subject_routes import subject_bp
 from routes.timetable_routes import timetable_bp
 from routes.user_routes import user_bp
+from services.realtime_service import init_socketio, socketio
 
 
 def create_app():
@@ -16,6 +17,7 @@ def create_app():
     app.config.from_object(Config)
 
     init_db_app(app)
+    init_socketio(app)
 
     @app.after_request
     def add_cors_headers(response):
@@ -39,4 +41,4 @@ app = create_app()
 
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    socketio.run(app, debug=True, host="127.0.0.1", port=5000)

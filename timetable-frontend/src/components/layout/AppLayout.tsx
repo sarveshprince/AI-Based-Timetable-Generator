@@ -35,10 +35,10 @@ const titleMap: Record<string, { title: string; subtitle: string }> = {
     title: 'Timetable Workspace',
     subtitle: 'Generate, review, and export timetable layouts without losing context.',
   },
-  '/student': {
-    title: 'Students',
-    subtitle: 'Manage student records and review active timetable coverage.',
-  },
+  // '/student': {
+  //   title: 'Students',
+  //   subtitle: 'Manage student records and review active timetable coverage.',
+  // },
 }
 
 const AppLayout = () => {
